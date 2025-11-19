@@ -316,7 +316,7 @@ Status: ${enemy.hp > 0 ? (statusEffects.enemyBleed > 0 ? `Bleeding (${statusEffe
                     log(`The ${enemy.name} is bleeding and will weaken over the next turns.`);
                 }
                 if (enemy.hp <= 0) {
-                    resolve(`You slay the ${enemy.name}!`);
+                    resolve(`You slay the ${enemy.name}!`, { victory: true });
                 } else {
                     enemyStrike(false, isCrit ? "staggered from your blow" : "bristles at the wound");
                 }
@@ -337,7 +337,7 @@ Status: ${enemy.hp > 0 ? (statusEffects.enemyBleed > 0 ? `Bleeding (${statusEffe
 
             if (success) {
                 escaped = true;
-                resolve(autoSuccess ? "You vanish into the spores with impossible speed!" : "You escape the room safely!");
+                resolve(autoSuccess ? "You vanish into the spores with impossible speed!" : "You escape the room safely!", { victory: true });
             } else {
                 log(roll.die === 1 ? "You slip! The Maggot Lion pounces." : "You fail to flee!");
                 enemyStrike(roll.die === 1);
@@ -448,15 +448,22 @@ Status: ${enemy.hp > 0 ? (statusEffects.enemyBleed > 0 ? `Bleeding (${statusEffe
                 statusEffects.enemyBleed = Math.max(0, statusEffects.enemyBleed - 1);
                 log(`The ${enemy.name} bleeds for ${bleedDamage} damage.`);
                 if (enemy.hp === 0) {
-                    resolve(`The ${enemy.name} collapses from blood loss.`);
+                    resolve(`The ${enemy.name} collapses from blood loss.`, { victory: true });
                 }
             } else if (statusEffects.enemyBleed > 0) {
                 statusEffects.enemyBleed = Math.max(0, statusEffects.enemyBleed - 1);
             }
         }
 
-        function resolve(message) {
+        function resolve(message, { victory = false } = {}) {
             log(message);
+            if (victory) {
+                // Advance the narrative when the encounter is won so the player sees what comes next.
+                document.getElementById("roomFlavor").innerText = `
+The Maggot Lion's carcass steams. Tendrils recoil from its blood and a flesh-lined passage yawns open.
+
+Will you press deeper into the pits or catch your breath?`;
+            }
             toggleActions(true);
         }
 
