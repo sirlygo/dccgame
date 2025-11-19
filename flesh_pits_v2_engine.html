@@ -4,19 +4,136 @@
 <head>
     <title>Flesh Pits - Advanced Combat + Choice Engine</title>
     <style>
-        body { font-family: monospace; background: #0c0c0f; color: #eee; padding: 20px; }
-        h1, h2 { color: #ff3b3f; text-shadow: 0 0 8px rgba(255, 59, 63, 0.5); }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
-        .card { background: #15151d; border: 1px solid #303040; padding: 12px; box-shadow: 0 0 12px rgba(0, 0, 0, 0.35); }
-        .pill { display: inline-block; padding: 2px 8px; border-radius: 8px; background: #222; border: 1px solid #444; margin-bottom: 6px; color: #ddd; }
-        button { background-color: #1e1e28; color: #fff; padding: 10px; margin: 5px; border: 1px solid #555; cursor: pointer; transition: transform 0.05s ease; }
-        button:hover { transform: translateY(-1px); }
-        button:disabled { opacity: 0.45; cursor: not-allowed; }
-        pre { background: #13131a; padding: 10px; border: 1px solid #2d2d39; white-space: pre-wrap; min-height: 80px; }
-        .actions button { display: block; margin: 8px 0; width: 240px; }
-        .meter { background: #1b1b24; border: 1px solid #333; height: 12px; width: 100%; position: relative; margin-top: 6px; }
-        .meter-fill { background: linear-gradient(90deg, #ff3b3f, #ff8a3b); height: 100%; width: 100%; }
-        .tagline { color: #bbb; margin-bottom: 10px; }
+        :root {
+            --surface: #15151d;
+            --surface-alt: #1b1b24;
+            --border: #303040;
+            --text: #eee;
+            --muted: #bbb;
+            --accent: #ff3b3f;
+            --accent-2: #ff8a3b;
+        }
+
+        body {
+            font-family: monospace;
+            background: #0c0c0f;
+            color: var(--text);
+            padding: 20px;
+            max-width: 1100px;
+            margin: 0 auto 48px;
+            line-height: 1.4;
+        }
+
+        h1, h2 {
+            color: var(--accent);
+            text-shadow: 0 0 8px rgba(255, 59, 63, 0.5);
+            margin-top: 0;
+        }
+
+        .tagline {
+            color: var(--muted);
+            margin: 0 0 12px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 16px;
+            align-items: start;
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            padding: 12px;
+            box-shadow: 0 0 12px rgba(0, 0, 0, 0.35);
+            border-radius: 8px;
+        }
+
+        .pill {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: #222;
+            border: 1px solid #444;
+            margin-bottom: 6px;
+            color: #ddd;
+            letter-spacing: 0.5px;
+        }
+
+        .pill.status-peril {
+            background: rgba(255, 59, 63, 0.12);
+            border-color: #ff585c;
+            color: #ffc3c5;
+        }
+
+        .pill.status-resolved {
+            background: rgba(73, 212, 92, 0.12);
+            border-color: #5ad66b;
+            color: #c3f1c9;
+        }
+
+        .actions {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 10px;
+            margin: 14px 0 4px;
+        }
+
+        button {
+            background-color: #1e1e28;
+            color: #fff;
+            padding: 10px;
+            border: 1px solid #555;
+            cursor: pointer;
+            transition: transform 0.05s ease, border-color 0.1s ease;
+            border-radius: 6px;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+            border-color: var(--accent);
+        }
+
+        button:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+
+        pre {
+            background: #13131a;
+            padding: 10px;
+            border: 1px solid #2d2d39;
+            white-space: pre-wrap;
+            min-height: 80px;
+            border-radius: 6px;
+        }
+
+        #log {
+            max-height: 280px;
+            overflow-y: auto;
+        }
+
+        .meter {
+            background: var(--surface-alt);
+            border: 1px solid #333;
+            height: 12px;
+            width: 100%;
+            position: relative;
+            margin-top: 6px;
+        }
+
+        .meter-fill {
+            background: linear-gradient(90deg, var(--accent), var(--accent-2));
+            height: 100%;
+            width: 100%;
+        }
+
+        .statline {
+            margin: 6px 0 0;
+            color: var(--muted);
+            font-size: 0.95em;
+        }
     </style>
 </head>
 <body>
@@ -94,6 +211,20 @@ What will you do?
         let turn = 1;
         let escaped = false;
 
+        function abilityMod(score) {
+            return Math.floor((score - 10) / 2);
+        }
+
+        function rollD20(mod = 0) {
+            const die = Math.floor(Math.random() * 20) + 1;
+            return { die, mod, total: die + mod };
+        }
+
+        function formatRoll({ die, mod, total }) {
+            const modText = mod === 0 ? "" : ` ${mod > 0 ? "+" : ""}${mod}`;
+            return `${die}${modText} ⇒ ${total}`;
+        }
+
         function toMeter(current, max) {
             const pct = Math.max(0, Math.min(1, current / max));
             const bar = "█".repeat(Math.round(pct * 20)).padEnd(20, "▒");
@@ -107,6 +238,13 @@ What will you do?
             if (pct < 0.5) return "wounded";
             if (pct < 0.9) return "scratched";
             return "fresh";
+        }
+
+        function updateStatusPills(stateText) {
+            const indicator = document.getElementById("stateIndicator");
+            indicator.innerText = stateText;
+            indicator.classList.remove("status-peril", "status-resolved");
+            indicator.classList.add(stateText === "In Peril" ? "status-peril" : "status-resolved");
         }
 
         function updateStats() {
@@ -126,9 +264,9 @@ Threat: gore-slick tendrils and a clacking maw.`;
             document.getElementById("enemyStats").innerText = enemyBlock;
 
             document.getElementById("turnIndicator").innerText = `Turn ${turn}`;
-            document.getElementById("stateIndicator").innerText = peasant.alive && !escaped && enemy.hp > 0 ? "In Peril" : "Resolved";
-
-            toggleActions(!(peasant.alive && enemy.hp > 0 && !escaped));
+            const inPeril = peasant.alive && !escaped && enemy.hp > 0;
+            updateStatusPills(inPeril ? "In Peril" : "Resolved");
+            toggleActions(!inPeril);
         }
 
         function log(text) {
@@ -145,21 +283,26 @@ Threat: gore-slick tendrils and a clacking maw.`;
 
         function fight() {
             if (!canAct()) return;
-            const roll = Math.floor(Math.random() * 20) + 1 + Math.floor((peasant.str - 10) / 2);
-            log(`You attack with a d20 roll: ${roll}`);
-            if (roll >= enemy.ac) {
-                const base = Math.floor(Math.random() * 6) + 1;
-                const dmg = base + (peasant.mutation === "Chitin Knuckles" ? 1 : 0);
+            const attackRoll = rollD20(abilityMod(peasant.str));
+            const mutationBonus = peasant.mutation === "Chitin Knuckles" ? 1 : 0;
+            const baseDamage = Math.floor(Math.random() * 6) + 1 + mutationBonus;
+            const isCrit = attackRoll.die === 20;
+            const fumbled = attackRoll.die === 1;
+
+            log(`You attack with a d20 roll ${formatRoll(attackRoll)} vs AC ${enemy.ac}.`);
+
+            if (attackRoll.total >= enemy.ac || isCrit) {
+                const dmg = isCrit ? baseDamage * 2 : baseDamage;
                 enemy.hp = Math.max(0, enemy.hp - dmg);
-                log(`Hit! You deal ${dmg} damage. Enemy HP: ${enemy.hp}`);
+                log(`Hit! ${isCrit ? "Critical! " : ""}You deal ${dmg} damage. Enemy HP: ${enemy.hp}.`);
                 if (enemy.hp <= 0) {
                     resolve(`You slay the ${enemy.name}!`);
                 } else {
-                    enemyStrike();
+                    enemyStrike(false, isCrit ? "staggered from your blow" : "bristles at the wound");
                 }
             } else {
-                log("Miss! The enemy prepares to strike...");
-                enemyStrike();
+                log(fumbled ? "You fumble and expose your flank!" : "Miss! The enemy prepares to strike...");
+                enemyStrike(fumbled);
             }
             turn++;
             updateStats();
@@ -167,14 +310,17 @@ Threat: gore-slick tendrils and a clacking maw.`;
 
         function flee() {
             if (!canAct()) return;
-            const roll = Math.floor(Math.random() * 20) + 1 + Math.floor((peasant.agi - 10) / 2);
-            log(`You attempt to flee... d20: ${roll}`);
-            if (roll >= 12) {
+            const roll = rollD20(abilityMod(peasant.agi));
+            log(`You attempt to flee... d20: ${formatRoll(roll)} vs DC 12.`);
+            const autoSuccess = roll.die === 20;
+            const success = autoSuccess || roll.total >= 12;
+
+            if (success) {
                 escaped = true;
-                resolve("You escape the room safely!");
+                resolve(autoSuccess ? "You vanish into the spores with impossible speed!" : "You escape the room safely!");
             } else {
-                log("You fail to flee!");
-                enemyStrike();
+                log(roll.die === 1 ? "You slip! The Maggot Lion pounces." : "You fail to flee!");
+                enemyStrike(roll.die === 1);
             }
             turn++;
             updateStats();
@@ -190,6 +336,10 @@ Threat: gore-slick tendrils and a clacking maw.`;
                     const healed = Math.min(peasant.maxHp - peasant.hp, 3);
                     peasant.hp += healed;
                     log(`You apply the salve and recover ${healed} HP.`);
+                } else if (reward !== "Healing Salve") {
+                    // Replace current item to highlight the new find.
+                    peasant.item = reward;
+                    log(`You pocket the ${reward}, swapping out your old tool.`);
                 }
             } else if (roll < 0.6) {
                 log("Your rummaging disturbs a nest of spores. They burn your lungs!");
@@ -208,9 +358,12 @@ Threat: gore-slick tendrils and a clacking maw.`;
 
         function mutate() {
             if (!canAct()) return;
-            const newMut = Object.keys(mutationEffects)[Math.floor(Math.random() * Object.keys(mutationEffects).length)];
+            const availableMutations = Object.keys(mutationEffects);
+            const newMut = availableMutations[Math.floor(Math.random() * availableMutations.length)];
+            const previousMutation = peasant.mutation;
             peasant.mutation = newMut;
-            log(`You absorb spores... New Mutation: ${newMut} (${mutationEffects[newMut]})`);
+            const label = newMut === previousMutation ? "Your mutation intensifies" : "New Mutation";
+            log(`You absorb spores... ${label}: ${newMut} (${mutationEffects[newMut]})`);
             if (newMut === "Glowing Skin") {
                 log("The Maggot Lion notices the glow and lunges!");
                 enemyStrike();
@@ -219,15 +372,19 @@ Threat: gore-slick tendrils and a clacking maw.`;
             updateStats();
         }
 
-        function enemyStrike() {
-            const dmg = enemy.damage();
+        function enemyStrike(enraged = false, note = "") {
+            // Enraged strikes add a point of damage when the peasant blunders or shines brightly.
+            const base = enemy.damage();
+            const dmg = enraged ? base + 1 : base;
             peasant.hp -= dmg;
             if (peasant.hp <= 0) {
                 peasant.alive = false;
                 peasant.hp = 0;
                 resolve(`The ${enemy.name} mauls you for ${dmg} damage. You die.`);
             } else {
-                log(`The ${enemy.name} strikes for ${dmg} damage. You have ${peasant.hp} HP left.`);
+                const fury = enraged ? " with vicious force" : "";
+                const extra = note ? ` (${note}).` : "";
+                log(`The ${enemy.name} strikes${fury} for ${dmg} damage. You have ${peasant.hp} HP left.${extra}`);
             }
         }
 
@@ -239,7 +396,7 @@ Threat: gore-slick tendrils and a clacking maw.`;
             } else {
                 const healed = Math.min(peasant.maxHp - peasant.hp, 2);
                 peasant.hp += healed;
-                log(`You bind wounds and recover ${healed} HP.`);
+                log(healed === 0 ? "You are already at full strength." : `You bind wounds and recover ${healed} HP.`);
             }
             turn++;
             updateStats();
