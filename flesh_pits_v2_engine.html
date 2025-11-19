@@ -4,31 +4,56 @@
 <head>
     <title>Flesh Pits - Advanced Combat + Choice Engine</title>
     <style>
-        body { font-family: monospace; background: #111; color: #eee; padding: 20px; }
-        h1, h2 { color: #e00; }
-        button { background-color: #222; color: #fff; padding: 10px; margin: 5px; border: 1px solid #555; cursor: pointer; }
-        pre { background: #222; padding: 10px; border: 1px solid #444; white-space: pre-wrap; }
-        .actions button { display: block; margin: 5px 0; width: 200px; }
+        body { font-family: monospace; background: #0c0c0f; color: #eee; padding: 20px; }
+        h1, h2 { color: #ff3b3f; text-shadow: 0 0 8px rgba(255, 59, 63, 0.5); }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+        .card { background: #15151d; border: 1px solid #303040; padding: 12px; box-shadow: 0 0 12px rgba(0, 0, 0, 0.35); }
+        .pill { display: inline-block; padding: 2px 8px; border-radius: 8px; background: #222; border: 1px solid #444; margin-bottom: 6px; color: #ddd; }
+        button { background-color: #1e1e28; color: #fff; padding: 10px; margin: 5px; border: 1px solid #555; cursor: pointer; transition: transform 0.05s ease; }
+        button:hover { transform: translateY(-1px); }
+        button:disabled { opacity: 0.45; cursor: not-allowed; }
+        pre { background: #13131a; padding: 10px; border: 1px solid #2d2d39; white-space: pre-wrap; min-height: 80px; }
+        .actions button { display: block; margin: 8px 0; width: 240px; }
+        .meter { background: #1b1b24; border: 1px solid #333; height: 12px; width: 100%; position: relative; margin-top: 6px; }
+        .meter-fill { background: linear-gradient(90deg, #ff3b3f, #ff8a3b); height: 100%; width: 100%; }
+        .tagline { color: #bbb; margin-bottom: 10px; }
     </style>
 </head>
 <body>
     <h1>🧠 Funnel of the Flesh Pits - V2 Engine</h1>
 
-    <h2>Peasant</h2>
-    <pre id="peasantStats"></pre>
+    <p class="tagline">An encounter-focused micro engine with combat, exploration, and creeping mutation.</p>
 
-    <h2>Room: Tendril Garden</h2>
-    <pre>
+    <div class="grid">
+        <div class="card">
+            <h2>Peasant</h2>
+            <pre id="peasantStats"></pre>
+        </div>
+
+        <div class="card">
+            <h2>Room: Tendril Garden</h2>
+            <pre id="roomFlavor">
 Vines twitch. The air pulses with spores. A Maggot Lion prowls here.
 
 What will you do?
-    </pre>
+            </pre>
+            <div class="pill" id="turnIndicator">Turn 1</div>
+            <div class="pill" id="stateIndicator">In Peril</div>
+        </div>
+
+        <div class="card">
+            <h2>Foe</h2>
+            <pre id="enemyStats"></pre>
+        </div>
+    </div>
 
     <div class="actions">
-        <button onclick="fight()">⚔️ Fight</button>
-        <button onclick="flee()">🏃‍♂️ Flee</button>
-        <button onclick="search()">🔍 Search</button>
-        <button onclick="mutate()">🧬 Mutate</button>
+        <button id="fightBtn" onclick="fight()">⚔️ Fight</button>
+        <button id="fleeBtn" onclick="flee()">🏃‍♂️ Flee</button>
+        <button id="searchBtn" onclick="search()">🔍 Search</button>
+        <button id="mutateBtn" onclick="mutate()">🧬 Mutate</button>
+        <button id="restBtn" onclick="rest()">⛺ Rest</button>
+        <button id="resetBtn" onclick="resetGame()">🔄 Reset Encounter</button>
     </div>
 
     <h2>📜 Log</h2>
@@ -40,12 +65,15 @@ What will you do?
             "Glowing Skin": "-1 stealth",
             "Rooted Toes": "+1 resist knockback",
             "Bioluminescent Veins": "+1 light radius",
-            "Bone Mask": "+1 to frighten checks"
+            "Bone Mask": "+1 to frighten checks",
+            "Spore Halo": "Allies gain +1 morale",
+            "Chitin Knuckles": "+1 damage in melee"
         };
 
-        const peasant = {
+        const initialPeasant = {
             name: "Peasant 1",
             hp: 6,
+            maxHp: 6,
             str: 12,
             agi: 10,
             mutation: "Extra Eye",
@@ -53,39 +81,79 @@ What will you do?
             alive: true
         };
 
-        const enemy = {
+        const initialEnemy = {
             name: "Maggot Lion",
             hp: 8,
+            maxHp: 8,
             ac: 11,
             damage: () => Math.floor(Math.random() * 4) + 1
         };
 
+        let peasant = { ...initialPeasant };
+        let enemy = { ...initialEnemy };
+        let turn = 1;
+        let escaped = false;
+
+        function toMeter(current, max) {
+            const pct = Math.max(0, Math.min(1, current / max));
+            const bar = "█".repeat(Math.round(pct * 20)).padEnd(20, "▒");
+            return `${bar} ${current}/${max}`;
+        }
+
+        function describeWound(current, max) {
+            const pct = current / max;
+            if (pct === 0) return "slain";
+            if (pct < 0.25) return "near death";
+            if (pct < 0.5) return "wounded";
+            if (pct < 0.9) return "scratched";
+            return "fresh";
+        }
+
         function updateStats() {
             const statBlock = `Name: ${peasant.name}
-HP: ${peasant.hp}
+HP: ${toMeter(peasant.hp, peasant.maxHp)} (${describeWound(peasant.hp, peasant.maxHp)})
 STR: ${peasant.str}
 AGI: ${peasant.agi}
 Mutation: ${peasant.mutation} (${mutationEffects[peasant.mutation]})
 Item: ${peasant.item}
-Alive: ${peasant.alive ? "Yes" : "No"}`;
+Status: ${peasant.alive ? (escaped ? "Escaped" : "In the fight") : "Dead"}`;
             document.getElementById("peasantStats").innerText = statBlock;
+
+            const enemyBlock = `Foe: ${enemy.name}
+HP: ${toMeter(enemy.hp, enemy.maxHp)} (${describeWound(enemy.hp, enemy.maxHp)})
+AC: ${enemy.ac}
+Threat: gore-slick tendrils and a clacking maw.`;
+            document.getElementById("enemyStats").innerText = enemyBlock;
+
+            document.getElementById("turnIndicator").innerText = `Turn ${turn}`;
+            document.getElementById("stateIndicator").innerText = peasant.alive && !escaped && enemy.hp > 0 ? "In Peril" : "Resolved";
+
+            toggleActions(!(peasant.alive && enemy.hp > 0 && !escaped));
         }
 
         function log(text) {
             const logBox = document.getElementById("log");
-            logBox.innerText = text + "\n\n" + logBox.innerText;
+            logBox.innerText = `[Turn ${turn}] ${text}\n\n` + logBox.innerText;
+        }
+
+        function toggleActions(disabled) {
+            document.querySelectorAll(".actions button").forEach(btn => {
+                if (btn.id === "resetBtn") return;
+                btn.disabled = disabled;
+            });
         }
 
         function fight() {
-            if (!peasant.alive) return;
+            if (!canAct()) return;
             const roll = Math.floor(Math.random() * 20) + 1 + Math.floor((peasant.str - 10) / 2);
             log(`You attack with a d20 roll: ${roll}`);
             if (roll >= enemy.ac) {
-                const dmg = Math.floor(Math.random() * 6) + 1;
-                enemy.hp -= dmg;
+                const base = Math.floor(Math.random() * 6) + 1;
+                const dmg = base + (peasant.mutation === "Chitin Knuckles" ? 1 : 0);
+                enemy.hp = Math.max(0, enemy.hp - dmg);
                 log(`Hit! You deal ${dmg} damage. Enemy HP: ${enemy.hp}`);
                 if (enemy.hp <= 0) {
-                    log(`You slay the ${enemy.name}!`);
+                    resolve(`You slay the ${enemy.name}!`);
                 } else {
                     enemyStrike();
                 }
@@ -93,35 +161,61 @@ Alive: ${peasant.alive ? "Yes" : "No"}`;
                 log("Miss! The enemy prepares to strike...");
                 enemyStrike();
             }
+            turn++;
             updateStats();
         }
 
         function flee() {
+            if (!canAct()) return;
             const roll = Math.floor(Math.random() * 20) + 1 + Math.floor((peasant.agi - 10) / 2);
             log(`You attempt to flee... d20: ${roll}`);
             if (roll >= 12) {
-                log("You escape the room safely!");
+                escaped = true;
+                resolve("You escape the room safely!");
             } else {
                 log("You fail to flee!");
                 enemyStrike();
             }
+            turn++;
+            updateStats();
         }
 
         function search() {
-            const found = Math.random() < 0.5;
-            if (found) {
+            if (!canAct()) return;
+            const roll = Math.random();
+            if (roll < 0.4) {
                 const reward = ["Spore Bomb", "Flesh Key", "Healing Salve"][Math.floor(Math.random() * 3)];
                 log(`You search the room... and find a ${reward}!`);
+                if (reward === "Healing Salve" && peasant.hp < peasant.maxHp) {
+                    const healed = Math.min(peasant.maxHp - peasant.hp, 3);
+                    peasant.hp += healed;
+                    log(`You apply the salve and recover ${healed} HP.`);
+                }
+            } else if (roll < 0.6) {
+                log("Your rummaging disturbs a nest of spores. They burn your lungs!");
+                peasant.hp = Math.max(0, peasant.hp - 2);
+                if (peasant.hp === 0) {
+                    peasant.alive = false;
+                    resolve("You choke and collapse among the tendrils.");
+                }
             } else {
                 log("You find nothing but rot.");
                 enemyStrike();
             }
+            turn++;
+            updateStats();
         }
 
         function mutate() {
-            const newMut = Object.keys(mutationEffects)[Math.floor(Math.random() * 5)];
+            if (!canAct()) return;
+            const newMut = Object.keys(mutationEffects)[Math.floor(Math.random() * Object.keys(mutationEffects).length)];
             peasant.mutation = newMut;
             log(`You absorb spores... New Mutation: ${newMut} (${mutationEffects[newMut]})`);
+            if (newMut === "Glowing Skin") {
+                log("The Maggot Lion notices the glow and lunges!");
+                enemyStrike();
+            }
+            turn++;
             updateStats();
         }
 
@@ -131,10 +225,48 @@ Alive: ${peasant.alive ? "Yes" : "No"}`;
             if (peasant.hp <= 0) {
                 peasant.alive = false;
                 peasant.hp = 0;
-                log(`The ${enemy.name} mauls you for ${dmg} damage. You die.`);
+                resolve(`The ${enemy.name} mauls you for ${dmg} damage. You die.`);
             } else {
                 log(`The ${enemy.name} strikes for ${dmg} damage. You have ${peasant.hp} HP left.`);
             }
+        }
+
+        function rest() {
+            if (!canAct()) return;
+            if (enemy.hp > 0) {
+                log("You try to catch your breath under the watchful eyes of the Maggot Lion...");
+                enemyStrike();
+            } else {
+                const healed = Math.min(peasant.maxHp - peasant.hp, 2);
+                peasant.hp += healed;
+                log(`You bind wounds and recover ${healed} HP.`);
+            }
+            turn++;
+            updateStats();
+        }
+
+        function resolve(message) {
+            log(message);
+            toggleActions(true);
+        }
+
+        function canAct() {
+            return peasant.alive && enemy.hp > 0 && !escaped;
+        }
+
+        function resetGame() {
+            peasant = { ...initialPeasant };
+            enemy = { ...initialEnemy };
+            turn = 1;
+            escaped = false;
+            document.getElementById("log").innerText = "Choose an action...";
+            document.getElementById("roomFlavor").innerText = `
+Vines twitch. The air pulses with spores. A ${enemy.name} prowls here.
+
+What will you do?
+            `;
+            toggleActions(false);
+            updateStats();
         }
 
         updateStats();
