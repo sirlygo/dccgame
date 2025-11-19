@@ -4,25 +4,48 @@
 <head>
     <title>Flesh Pits - Advanced Combat + Choice Engine</title>
     <style>
-        body { font-family: monospace; background: #0c0c0f; color: #eee; padding: 20px; }
-        h1, h2 { color: #ff3b3f; text-shadow: 0 0 8px rgba(255, 59, 63, 0.5); }
+        :root {
+            --bg: #0c0c0f;
+            --panel: #15151d;
+            --border: #303040;
+            --text: #eee;
+            --muted: #bbb;
+            --accent: #ff3b3f;
+            --accent-soft: #ff8a3b;
+            --pill-muted: #222;
+        }
+
+        body { font-family: monospace; background: var(--bg); color: var(--text); padding: 20px; max-width: 1100px; margin: 0 auto; }
+        h1, h2 { color: var(--accent); text-shadow: 0 0 8px rgba(255, 59, 63, 0.5); }
         .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
-        .card { background: #15151d; border: 1px solid #303040; padding: 12px; box-shadow: 0 0 12px rgba(0, 0, 0, 0.35); }
-        .pill { display: inline-block; padding: 2px 8px; border-radius: 8px; background: #222; border: 1px solid #444; margin-bottom: 6px; color: #ddd; }
-        button { background-color: #1e1e28; color: #fff; padding: 10px; margin: 5px; border: 1px solid #555; cursor: pointer; transition: transform 0.05s ease; }
-        button:hover { transform: translateY(-1px); }
+        .card { background: var(--panel); border: 1px solid var(--border); padding: 12px; box-shadow: 0 0 12px rgba(0, 0, 0, 0.35); }
+        .pill { display: inline-block; padding: 2px 8px; border-radius: 8px; background: var(--pill-muted); border: 1px solid #444; margin-bottom: 6px; color: #ddd; }
+        .pill--danger { background: rgba(255, 59, 63, 0.15); border-color: rgba(255, 59, 63, 0.65); color: #ffc7c7; }
+        .pill--success { background: rgba(0, 160, 110, 0.25); border-color: rgba(0, 160, 110, 0.6); color: #c9ffe8; }
+        .pill--muted { background: rgba(255, 255, 255, 0.06); color: var(--muted); }
+        button { background-color: #1e1e28; color: #fff; padding: 10px; margin: 5px; border: 1px solid #555; cursor: pointer; transition: transform 0.05s ease, background 0.2s ease; width: 100%; }
+        button:hover { transform: translateY(-1px); background: rgba(255, 255, 255, 0.05); }
         button:disabled { opacity: 0.45; cursor: not-allowed; }
         pre { background: #13131a; padding: 10px; border: 1px solid #2d2d39; white-space: pre-wrap; min-height: 80px; }
-        .actions button { display: block; margin: 8px 0; width: 240px; }
+        .actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 14px 0; }
         .meter { background: #1b1b24; border: 1px solid #333; height: 12px; width: 100%; position: relative; margin-top: 6px; }
-        .meter-fill { background: linear-gradient(90deg, #ff3b3f, #ff8a3b); height: 100%; width: 100%; }
-        .tagline { color: #bbb; margin-bottom: 10px; }
+        .meter-fill { background: linear-gradient(90deg, var(--accent), var(--accent-soft)); height: 100%; width: 100%; }
+        .tagline { color: var(--muted); margin-bottom: 10px; }
+        .status-panel { background: #111119; border: 1px solid var(--border); padding: 10px; margin-bottom: 16px; display: flex; gap: 10px; align-items: center; box-shadow: 0 0 10px rgba(0,0,0,0.25); }
+        .status-message { color: var(--text); flex: 1; }
+        .status-label { font-weight: bold; letter-spacing: 0.03em; color: var(--muted); }
     </style>
 </head>
 <body>
     <h1>🧠 Funnel of the Flesh Pits - V2 Engine</h1>
 
     <p class="tagline">An encounter-focused micro engine with combat, exploration, and creeping mutation.</p>
+
+    <div class="status-panel">
+        <span class="status-label">Encounter:</span>
+        <div class="pill pill--danger" id="stateIndicator">In Peril</div>
+        <div class="status-message" id="statusMessage">Choose an action to survive.</div>
+    </div>
 
     <div class="grid">
         <div class="card">
@@ -37,8 +60,7 @@ Vines twitch. The air pulses with spores. A Maggot Lion prowls here.
 
 What will you do?
             </pre>
-            <div class="pill" id="turnIndicator">Turn 1</div>
-            <div class="pill" id="stateIndicator">In Peril</div>
+            <div class="pill pill--muted" id="turnIndicator">Turn 1</div>
         </div>
 
         <div class="card">
@@ -94,6 +116,13 @@ What will you do?
         let turn = 1;
         let escaped = false;
 
+        const stateClassNames = {
+            "In Peril": "pill pill--danger",
+            "Victory": "pill pill--success",
+            "Escaped": "pill pill--success",
+            "Dead": "pill pill--muted"
+        };
+
         function toMeter(current, max) {
             const pct = Math.max(0, Math.min(1, current / max));
             const bar = "█".repeat(Math.round(pct * 20)).padEnd(20, "▒");
@@ -107,6 +136,27 @@ What will you do?
             if (pct < 0.5) return "wounded";
             if (pct < 0.9) return "scratched";
             return "fresh";
+        }
+
+        function abilityMod(score) {
+            return Math.floor((score - 10) / 2);
+        }
+
+        // Rolls a die and returns both the natural roll and the modified total.
+        function rollDie(sides, modifier = 0) {
+            const natural = Math.floor(Math.random() * sides) + 1;
+            return { natural, total: natural + modifier, modifier };
+        }
+
+        function setStatusMessage(message) {
+            document.getElementById("statusMessage").innerText = message;
+        }
+
+        function encounterState() {
+            if (!peasant.alive) return "Dead";
+            if (enemy.hp <= 0) return "Victory";
+            if (escaped) return "Escaped";
+            return "In Peril";
         }
 
         function updateStats() {
@@ -126,7 +176,11 @@ Threat: gore-slick tendrils and a clacking maw.`;
             document.getElementById("enemyStats").innerText = enemyBlock;
 
             document.getElementById("turnIndicator").innerText = `Turn ${turn}`;
-            document.getElementById("stateIndicator").innerText = peasant.alive && !escaped && enemy.hp > 0 ? "In Peril" : "Resolved";
+
+            const state = encounterState();
+            const stateIndicator = document.getElementById("stateIndicator");
+            stateIndicator.innerText = state;
+            stateIndicator.className = stateClassNames[state];
 
             toggleActions(!(peasant.alive && enemy.hp > 0 && !escaped));
         }
@@ -145,13 +199,16 @@ Threat: gore-slick tendrils and a clacking maw.`;
 
         function fight() {
             if (!canAct()) return;
-            const roll = Math.floor(Math.random() * 20) + 1 + Math.floor((peasant.str - 10) / 2);
-            log(`You attack with a d20 roll: ${roll}`);
-            if (roll >= enemy.ac) {
+            setStatusMessage("You clash with the foe.");
+            const strengthBonus = abilityMod(peasant.str);
+            const roll = rollDie(20, strengthBonus);
+            log(`You attack with a d20 roll: ${roll.total} (natural ${roll.natural}${strengthBonus !== 0 ? ` ${strengthBonus > 0 ? '+' : ''}${strengthBonus}` : ''})`);
+            if (roll.total >= enemy.ac) {
                 const base = Math.floor(Math.random() * 6) + 1;
                 const dmg = base + (peasant.mutation === "Chitin Knuckles" ? 1 : 0);
                 enemy.hp = Math.max(0, enemy.hp - dmg);
                 log(`Hit! You deal ${dmg} damage. Enemy HP: ${enemy.hp}`);
+                setStatusMessage("Your strike lands true.");
                 if (enemy.hp <= 0) {
                     resolve(`You slay the ${enemy.name}!`);
                 } else {
@@ -159,6 +216,7 @@ Threat: gore-slick tendrils and a clacking maw.`;
                 }
             } else {
                 log("Miss! The enemy prepares to strike...");
+                setStatusMessage("Your blow goes wide.");
                 enemyStrike();
             }
             turn++;
@@ -167,13 +225,16 @@ Threat: gore-slick tendrils and a clacking maw.`;
 
         function flee() {
             if (!canAct()) return;
-            const roll = Math.floor(Math.random() * 20) + 1 + Math.floor((peasant.agi - 10) / 2);
-            log(`You attempt to flee... d20: ${roll}`);
-            if (roll >= 12) {
+            const agilityBonus = abilityMod(peasant.agi);
+            const roll = rollDie(20, agilityBonus);
+            log(`You attempt to flee... d20: ${roll.total} (natural ${roll.natural}${agilityBonus !== 0 ? ` ${agilityBonus > 0 ? '+' : ''}${agilityBonus}` : ''})`);
+            if (roll.total >= 12) {
                 escaped = true;
                 resolve("You escape the room safely!");
+                setStatusMessage("You slip past the Maggot Lion.");
             } else {
                 log("You fail to flee!");
+                setStatusMessage("The exit is cut off!");
                 enemyStrike();
             }
             turn++;
@@ -182,24 +243,29 @@ Threat: gore-slick tendrils and a clacking maw.`;
 
         function search() {
             if (!canAct()) return;
+            setStatusMessage("You scour the tendril garden.");
             const roll = Math.random();
             if (roll < 0.4) {
                 const reward = ["Spore Bomb", "Flesh Key", "Healing Salve"][Math.floor(Math.random() * 3)];
                 log(`You search the room... and find a ${reward}!`);
+                setStatusMessage(`You pocket the ${reward}.`);
                 if (reward === "Healing Salve" && peasant.hp < peasant.maxHp) {
                     const healed = Math.min(peasant.maxHp - peasant.hp, 3);
                     peasant.hp += healed;
                     log(`You apply the salve and recover ${healed} HP.`);
+                    setStatusMessage("The salve numbs your wounds.");
                 }
             } else if (roll < 0.6) {
                 log("Your rummaging disturbs a nest of spores. They burn your lungs!");
                 peasant.hp = Math.max(0, peasant.hp - 2);
+                setStatusMessage("Coughing fits leave you staggering.");
                 if (peasant.hp === 0) {
                     peasant.alive = false;
                     resolve("You choke and collapse among the tendrils.");
                 }
             } else {
                 log("You find nothing but rot.");
+                setStatusMessage("The room reveals nothing new.");
                 enemyStrike();
             }
             turn++;
@@ -211,8 +277,10 @@ Threat: gore-slick tendrils and a clacking maw.`;
             const newMut = Object.keys(mutationEffects)[Math.floor(Math.random() * Object.keys(mutationEffects).length)];
             peasant.mutation = newMut;
             log(`You absorb spores... New Mutation: ${newMut} (${mutationEffects[newMut]})`);
+            setStatusMessage(`You feel ${mutationEffects[newMut]}.`);
             if (newMut === "Glowing Skin") {
                 log("The Maggot Lion notices the glow and lunges!");
+                setStatusMessage("The glow betrays your position!");
                 enemyStrike();
             }
             turn++;
@@ -226,8 +294,10 @@ Threat: gore-slick tendrils and a clacking maw.`;
                 peasant.alive = false;
                 peasant.hp = 0;
                 resolve(`The ${enemy.name} mauls you for ${dmg} damage. You die.`);
+                setStatusMessage("Your tale ends in the garden.");
             } else {
                 log(`The ${enemy.name} strikes for ${dmg} damage. You have ${peasant.hp} HP left.`);
+                setStatusMessage("The Maggot Lion draws blood.");
             }
         }
 
@@ -235,11 +305,13 @@ Threat: gore-slick tendrils and a clacking maw.`;
             if (!canAct()) return;
             if (enemy.hp > 0) {
                 log("You try to catch your breath under the watchful eyes of the Maggot Lion...");
+                setStatusMessage("You cannot relax while it stalks.");
                 enemyStrike();
             } else {
                 const healed = Math.min(peasant.maxHp - peasant.hp, 2);
                 peasant.hp += healed;
                 log(`You bind wounds and recover ${healed} HP.`);
+                setStatusMessage("You breathe easier for a moment.");
             }
             turn++;
             updateStats();
@@ -248,6 +320,7 @@ Threat: gore-slick tendrils and a clacking maw.`;
         function resolve(message) {
             log(message);
             toggleActions(true);
+            setStatusMessage(message);
         }
 
         function canAct() {
@@ -266,6 +339,7 @@ Vines twitch. The air pulses with spores. A ${enemy.name} prowls here.
 What will you do?
             `;
             toggleActions(false);
+            setStatusMessage("Fresh horrors await.");
             updateStats();
         }
 
