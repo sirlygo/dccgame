@@ -148,7 +148,7 @@
         </div>
 
         <div class="card">
-            <h2>Room: Tendril Garden</h2>
+            <h2 id="roomTitle">Room: Tendril Garden</h2>
             <pre id="roomFlavor">
 Vines twitch. The air pulses with spores. A Maggot Lion prowls here.
 
@@ -199,18 +199,47 @@ What will you do?
             alive: true
         };
 
-        const initialEnemy = {
-            name: "Maggot Lion",
-            hp: 8,
-            maxHp: 8,
-            ac: 11,
-            damage: () => Math.floor(Math.random() * 4) + 1
-        };
+        const encounters = [
+            {
+                title: "Tendril Garden",
+                flavor: "Vines twitch. The air pulses with spores. A Maggot Lion prowls here.",
+                enemy: {
+                    name: "Maggot Lion",
+                    hp: 8,
+                    maxHp: 8,
+                    ac: 11,
+                    damage: () => Math.floor(Math.random() * 4) + 1
+                }
+            },
+            {
+                title: "Chamber of Chimes",
+                flavor: "Bioluminescent strings hum in the walls. Each step makes the tunnels sing.",
+                enemy: {
+                    name: "Gongling Mass",
+                    hp: 10,
+                    maxHp: 10,
+                    ac: 12,
+                    damage: () => Math.floor(Math.random() * 6) + 1
+                }
+            },
+            {
+                title: "Meat Crucible",
+                flavor: "A cyst of bone frames a pit of molten flesh. Freedom lies beyond the final guardian.",
+                enemy: {
+                    name: "Crucible Warden",
+                    hp: 12,
+                    maxHp: 12,
+                    ac: 13,
+                    damage: () => Math.floor(Math.random() * 6) + 2
+                }
+            }
+        ];
 
         let peasant = { ...initialPeasant };
-        let enemy = { ...initialEnemy };
+        let enemy = { ...encounters[0].enemy };
         let turn = 1;
         let escaped = false;
+        let encounterIndex = 0;
         const statusEffects = {
             guard: false,
             enemyBleed: 0
@@ -289,8 +318,8 @@ Status: ${enemy.hp > 0 ? (statusEffects.enemyBleed > 0 ? `Bleeding (${statusEffe
         }
 
         function prepareTurn() {
-            applyOngoingEffects();
-            if (!canAct()) {
+            const encounterAdvanced = applyOngoingEffects();
+            if (encounterAdvanced || !canAct()) {
                 updateStats();
                 return false;
             }
@@ -316,7 +345,8 @@ Status: ${enemy.hp > 0 ? (statusEffects.enemyBleed > 0 ? `Bleeding (${statusEffe
                     log(`The ${enemy.name} is bleeding and will weaken over the next turns.`);
                 }
                 if (enemy.hp <= 0) {
-                    resolve(`You slay the ${enemy.name}!`);
+                    handleVictory(`You slay the ${enemy.name}!`);
+                    return;
                 } else {
                     enemyStrike(false, isCrit ? "staggered from your blow" : "bristles at the wound");
                 }
@@ -339,7 +369,7 @@ Status: ${enemy.hp > 0 ? (statusEffects.enemyBleed > 0 ? `Bleeding (${statusEffe
                 escaped = true;
                 resolve(autoSuccess ? "You vanish into the spores with impossible speed!" : "You escape the room safely!");
             } else {
-                log(roll.die === 1 ? "You slip! The Maggot Lion pounces." : "You fail to flee!");
+                log(roll.die === 1 ? `You slip! The ${enemy.name} pounces.` : "You fail to flee!");
                 enemyStrike(roll.die === 1);
             }
             turn++;
@@ -385,7 +415,7 @@ Status: ${enemy.hp > 0 ? (statusEffects.enemyBleed > 0 ? `Bleeding (${statusEffe
             const label = newMut === previousMutation ? "Your mutation intensifies" : "New Mutation";
             log(`You absorb spores... ${label}: ${newMut} (${mutationEffects[newMut]})`);
             if (newMut === "Glowing Skin") {
-                log("The Maggot Lion notices the glow and lunges!");
+                log(`The ${enemy.name} notices the glow and lunges!`);
                 enemyStrike();
             }
             turn++;
@@ -416,7 +446,7 @@ Status: ${enemy.hp > 0 ? (statusEffects.enemyBleed > 0 ? `Bleeding (${statusEffe
         function rest() {
             if (!prepareTurn()) return;
             if (enemy.hp > 0) {
-                log("You try to catch your breath under the watchful eyes of the Maggot Lion...");
+                log(`You try to catch your breath under the watchful eyes of the ${enemy.name}...`);
                 enemyStrike();
             } else {
                 const healed = Math.min(peasant.maxHp - peasant.hp, 2);
@@ -448,15 +478,34 @@ Status: ${enemy.hp > 0 ? (statusEffects.enemyBleed > 0 ? `Bleeding (${statusEffe
                 statusEffects.enemyBleed = Math.max(0, statusEffects.enemyBleed - 1);
                 log(`The ${enemy.name} bleeds for ${bleedDamage} damage.`);
                 if (enemy.hp === 0) {
-                    resolve(`The ${enemy.name} collapses from blood loss.`);
+                    handleVictory(`The ${enemy.name} collapses from blood loss.`);
+                    return true;
                 }
             } else if (statusEffects.enemyBleed > 0) {
                 statusEffects.enemyBleed = Math.max(0, statusEffects.enemyBleed - 1);
             }
+            return false;
+        }
+
+        function handleVictory(message) {
+            const nextEncounterIndex = encounterIndex + 1;
+            const hasAnotherRoom = nextEncounterIndex < encounters.length;
+            log(message);
+
+            if (hasAnotherRoom) {
+                // Reset per-encounter pacing while carrying forward the survivor's state.
+                turn = 1;
+                startEncounter(nextEncounterIndex);
+                log(`You push deeper into the Flesh Pits toward the ${encounters[nextEncounterIndex].title}.`);
+                return;
+            }
+
+            resolve(`${message} You find a hidden exit and escape the Flesh Pits.`);
         }
 
         function resolve(message) {
             log(message);
+            updateStats();
             toggleActions(true);
         }
 
@@ -464,24 +513,27 @@ Status: ${enemy.hp > 0 ? (statusEffects.enemyBleed > 0 ? `Bleeding (${statusEffe
             return peasant.alive && enemy.hp > 0 && !escaped;
         }
 
-        function resetGame() {
-            peasant = { ...initialPeasant };
-            enemy = { ...initialEnemy };
-            turn = 1;
+        function startEncounter(index) {
+            const { title, flavor, enemy: enemyTemplate } = encounters[index];
+            encounterIndex = index;
+            enemy = { ...enemyTemplate, damage: enemyTemplate.damage };
             escaped = false;
             statusEffects.guard = false;
             statusEffects.enemyBleed = 0;
-            document.getElementById("log").innerText = "Choose an action...";
-            document.getElementById("roomFlavor").innerText = `
-Vines twitch. The air pulses with spores. A ${enemy.name} prowls here.
-
-What will you do?
-            `;
+            document.getElementById("roomTitle").innerText = `Room: ${title}`;
+            document.getElementById("roomFlavor").innerText = `${flavor}\n\nWhat will you do?`;
             toggleActions(false);
             updateStats();
         }
 
-        updateStats();
+        function resetGame() {
+            peasant = { ...initialPeasant };
+            turn = 1;
+            document.getElementById("log").innerText = "Choose an action...";
+            startEncounter(0);
+        }
+
+        resetGame();
     </script>
 </body>
 </html>
