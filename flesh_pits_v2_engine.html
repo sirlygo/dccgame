@@ -170,6 +170,7 @@ What will you do?
         <button id="searchBtn" onclick="search()">🔍 Search</button>
         <button id="mutateBtn" onclick="mutate()">🧬 Mutate</button>
         <button id="restBtn" onclick="rest()">⛺ Rest</button>
+        <button id="braceBtn" onclick="brace()">🛡️ Brace</button>
         <button id="resetBtn" onclick="resetGame()">🔄 Reset Encounter</button>
     </div>
 
@@ -210,6 +211,10 @@ What will you do?
         let enemy = { ...initialEnemy };
         let turn = 1;
         let escaped = false;
+        const statusEffects = {
+            guard: false,
+            enemyBleed: 0
+        };
 
         function abilityMod(score) {
             return Math.floor((score - 10) / 2);
@@ -254,13 +259,15 @@ STR: ${peasant.str}
 AGI: ${peasant.agi}
 Mutation: ${peasant.mutation} (${mutationEffects[peasant.mutation]})
 Item: ${peasant.item}
+Battle Stance: ${statusEffects.guard ? "Guarded" : "Open"}
 Status: ${peasant.alive ? (escaped ? "Escaped" : "In the fight") : "Dead"}`;
             document.getElementById("peasantStats").innerText = statBlock;
 
             const enemyBlock = `Foe: ${enemy.name}
 HP: ${toMeter(enemy.hp, enemy.maxHp)} (${describeWound(enemy.hp, enemy.maxHp)})
 AC: ${enemy.ac}
-Threat: gore-slick tendrils and a clacking maw.`;
+Threat: gore-slick tendrils and a clacking maw.
+Status: ${enemy.hp > 0 ? (statusEffects.enemyBleed > 0 ? `Bleeding (${statusEffects.enemyBleed} turn${statusEffects.enemyBleed === 1 ? "" : "s"} left)` : "Alert") : "Defeated"}.`;
             document.getElementById("enemyStats").innerText = enemyBlock;
 
             document.getElementById("turnIndicator").innerText = `Turn ${turn}`;
@@ -281,8 +288,17 @@ Threat: gore-slick tendrils and a clacking maw.`;
             });
         }
 
+        function prepareTurn() {
+            applyOngoingEffects();
+            if (!canAct()) {
+                updateStats();
+                return false;
+            }
+            return true;
+        }
+
         function fight() {
-            if (!canAct()) return;
+            if (!prepareTurn()) return;
             const attackRoll = rollD20(abilityMod(peasant.str));
             const mutationBonus = peasant.mutation === "Chitin Knuckles" ? 1 : 0;
             const baseDamage = Math.floor(Math.random() * 6) + 1 + mutationBonus;
@@ -295,6 +311,10 @@ Threat: gore-slick tendrils and a clacking maw.`;
                 const dmg = isCrit ? baseDamage * 2 : baseDamage;
                 enemy.hp = Math.max(0, enemy.hp - dmg);
                 log(`Hit! ${isCrit ? "Critical! " : ""}You deal ${dmg} damage. Enemy HP: ${enemy.hp}.`);
+                if (isCrit && enemy.hp > 0) {
+                    statusEffects.enemyBleed = 2;
+                    log(`The ${enemy.name} is bleeding and will weaken over the next turns.`);
+                }
                 if (enemy.hp <= 0) {
                     resolve(`You slay the ${enemy.name}!`);
                 } else {
@@ -309,7 +329,7 @@ Threat: gore-slick tendrils and a clacking maw.`;
         }
 
         function flee() {
-            if (!canAct()) return;
+            if (!prepareTurn()) return;
             const roll = rollD20(abilityMod(peasant.agi));
             log(`You attempt to flee... d20: ${formatRoll(roll)} vs DC 12.`);
             const autoSuccess = roll.die === 20;
@@ -327,7 +347,7 @@ Threat: gore-slick tendrils and a clacking maw.`;
         }
 
         function search() {
-            if (!canAct()) return;
+            if (!prepareTurn()) return;
             const roll = Math.random();
             if (roll < 0.4) {
                 const reward = ["Spore Bomb", "Flesh Key", "Healing Salve"][Math.floor(Math.random() * 3)];
@@ -357,7 +377,7 @@ Threat: gore-slick tendrils and a clacking maw.`;
         }
 
         function mutate() {
-            if (!canAct()) return;
+            if (!prepareTurn()) return;
             const availableMutations = Object.keys(mutationEffects);
             const newMut = availableMutations[Math.floor(Math.random() * availableMutations.length)];
             const previousMutation = peasant.mutation;
@@ -375,7 +395,10 @@ Threat: gore-slick tendrils and a clacking maw.`;
         function enemyStrike(enraged = false, note = "") {
             // Enraged strikes add a point of damage when the peasant blunders or shines brightly.
             const base = enemy.damage();
-            const dmg = enraged ? base + 1 : base;
+            const preMitigation = enraged ? base + 1 : base;
+            const mitigation = statusEffects.guard ? 2 : 0;
+            statusEffects.guard = false;
+            const dmg = Math.max(0, preMitigation - mitigation);
             peasant.hp -= dmg;
             if (peasant.hp <= 0) {
                 peasant.alive = false;
@@ -384,12 +407,14 @@ Threat: gore-slick tendrils and a clacking maw.`;
             } else {
                 const fury = enraged ? " with vicious force" : "";
                 const extra = note ? ` (${note}).` : "";
-                log(`The ${enemy.name} strikes${fury} for ${dmg} damage. You have ${peasant.hp} HP left.${extra}`);
+                const guardText = mitigation > 0 ? ` Your guard shrugs off ${Math.min(preMitigation, mitigation)} damage.` : "";
+                const noDamage = dmg === 0 ? " but your guard holds." : "";
+                log(`The ${enemy.name} strikes${fury} for ${dmg} damage. You have ${peasant.hp} HP left.${extra}${guardText}${noDamage}`);
             }
         }
 
         function rest() {
-            if (!canAct()) return;
+            if (!prepareTurn()) return;
             if (enemy.hp > 0) {
                 log("You try to catch your breath under the watchful eyes of the Maggot Lion...");
                 enemyStrike();
@@ -400,6 +425,34 @@ Threat: gore-slick tendrils and a clacking maw.`;
             }
             turn++;
             updateStats();
+        }
+
+        function brace() {
+            if (!prepareTurn()) return;
+            const alreadyGuarding = statusEffects.guard;
+            statusEffects.guard = true;
+            const steadied = peasant.hp < peasant.maxHp ? 1 : 0;
+            if (steadied) {
+                peasant.hp += steadied;
+            }
+            log(`${alreadyGuarding ? "You hold your defensive stance" : "You raise your guard"}, ready to deflect incoming blows${steadied ? " and steady your breath (+1 HP)" : ""}.`);
+            enemyStrike(false, "testing your defense");
+            turn++;
+            updateStats();
+        }
+
+        function applyOngoingEffects() {
+            if (enemy.hp > 0 && statusEffects.enemyBleed > 0) {
+                const bleedDamage = statusEffects.enemyBleed;
+                enemy.hp = Math.max(0, enemy.hp - bleedDamage);
+                statusEffects.enemyBleed = Math.max(0, statusEffects.enemyBleed - 1);
+                log(`The ${enemy.name} bleeds for ${bleedDamage} damage.`);
+                if (enemy.hp === 0) {
+                    resolve(`The ${enemy.name} collapses from blood loss.`);
+                }
+            } else if (statusEffects.enemyBleed > 0) {
+                statusEffects.enemyBleed = Math.max(0, statusEffects.enemyBleed - 1);
+            }
         }
 
         function resolve(message) {
@@ -416,6 +469,8 @@ Threat: gore-slick tendrils and a clacking maw.`;
             enemy = { ...initialEnemy };
             turn = 1;
             escaped = false;
+            statusEffects.guard = false;
+            statusEffects.enemyBleed = 0;
             document.getElementById("log").innerText = "Choose an action...";
             document.getElementById("roomFlavor").innerText = `
 Vines twitch. The air pulses with spores. A ${enemy.name} prowls here.
