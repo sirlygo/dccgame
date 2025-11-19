@@ -1,0 +1,143 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Flesh Pits - Advanced Combat + Choice Engine</title>
+    <style>
+        body { font-family: monospace; background: #111; color: #eee; padding: 20px; }
+        h1, h2 { color: #e00; }
+        button { background-color: #222; color: #fff; padding: 10px; margin: 5px; border: 1px solid #555; cursor: pointer; }
+        pre { background: #222; padding: 10px; border: 1px solid #444; white-space: pre-wrap; }
+        .actions button { display: block; margin: 5px 0; width: 200px; }
+    </style>
+</head>
+<body>
+    <h1>🧠 Funnel of the Flesh Pits - V2 Engine</h1>
+
+    <h2>Peasant</h2>
+    <pre id="peasantStats"></pre>
+
+    <h2>Room: Tendril Garden</h2>
+    <pre>
+Vines twitch. The air pulses with spores. A Maggot Lion prowls here.
+
+What will you do?
+    </pre>
+
+    <div class="actions">
+        <button onclick="fight()">⚔️ Fight</button>
+        <button onclick="flee()">🏃‍♂️ Flee</button>
+        <button onclick="search()">🔍 Search</button>
+        <button onclick="mutate()">🧬 Mutate</button>
+    </div>
+
+    <h2>📜 Log</h2>
+    <pre id="log">Choose an action...</pre>
+
+    <script>
+        const mutationEffects = {
+            "Extra Eye": "+1 perception",
+            "Glowing Skin": "-1 stealth",
+            "Rooted Toes": "+1 resist knockback",
+            "Bioluminescent Veins": "+1 light radius",
+            "Bone Mask": "+1 to frighten checks"
+        };
+
+        const peasant = {
+            name: "Peasant 1",
+            hp: 6,
+            str: 12,
+            agi: 10,
+            mutation: "Extra Eye",
+            item: "Gland Knife",
+            alive: true
+        };
+
+        const enemy = {
+            name: "Maggot Lion",
+            hp: 8,
+            ac: 11,
+            damage: () => Math.floor(Math.random() * 4) + 1
+        };
+
+        function updateStats() {
+            const statBlock = `Name: ${peasant.name}
+HP: ${peasant.hp}
+STR: ${peasant.str}
+AGI: ${peasant.agi}
+Mutation: ${peasant.mutation} (${mutationEffects[peasant.mutation]})
+Item: ${peasant.item}
+Alive: ${peasant.alive ? "Yes" : "No"}`;
+            document.getElementById("peasantStats").innerText = statBlock;
+        }
+
+        function log(text) {
+            const logBox = document.getElementById("log");
+            logBox.innerText = text + "\n\n" + logBox.innerText;
+        }
+
+        function fight() {
+            if (!peasant.alive) return;
+            const roll = Math.floor(Math.random() * 20) + 1 + Math.floor((peasant.str - 10) / 2);
+            log(`You attack with a d20 roll: ${roll}`);
+            if (roll >= enemy.ac) {
+                const dmg = Math.floor(Math.random() * 6) + 1;
+                enemy.hp -= dmg;
+                log(`Hit! You deal ${dmg} damage. Enemy HP: ${enemy.hp}`);
+                if (enemy.hp <= 0) {
+                    log(`You slay the ${enemy.name}!`);
+                } else {
+                    enemyStrike();
+                }
+            } else {
+                log("Miss! The enemy prepares to strike...");
+                enemyStrike();
+            }
+            updateStats();
+        }
+
+        function flee() {
+            const roll = Math.floor(Math.random() * 20) + 1 + Math.floor((peasant.agi - 10) / 2);
+            log(`You attempt to flee... d20: ${roll}`);
+            if (roll >= 12) {
+                log("You escape the room safely!");
+            } else {
+                log("You fail to flee!");
+                enemyStrike();
+            }
+        }
+
+        function search() {
+            const found = Math.random() < 0.5;
+            if (found) {
+                const reward = ["Spore Bomb", "Flesh Key", "Healing Salve"][Math.floor(Math.random() * 3)];
+                log(`You search the room... and find a ${reward}!`);
+            } else {
+                log("You find nothing but rot.");
+                enemyStrike();
+            }
+        }
+
+        function mutate() {
+            const newMut = Object.keys(mutationEffects)[Math.floor(Math.random() * 5)];
+            peasant.mutation = newMut;
+            log(`You absorb spores... New Mutation: ${newMut} (${mutationEffects[newMut]})`);
+            updateStats();
+        }
+
+        function enemyStrike() {
+            const dmg = enemy.damage();
+            peasant.hp -= dmg;
+            if (peasant.hp <= 0) {
+                peasant.alive = false;
+                peasant.hp = 0;
+                log(`The ${enemy.name} mauls you for ${dmg} damage. You die.`);
+            } else {
+                log(`The ${enemy.name} strikes for ${dmg} damage. You have ${peasant.hp} HP left.`);
+            }
+        }
+
+        updateStats();
+    </script>
+</body>
+</html>
